@@ -1,0 +1,33 @@
+=== RUN   TestGitSafeEnvIsObservedBySpawnedProcess
+--- PASS: TestGitSafeEnvIsObservedBySpawnedProcess (0.01s)
+=== RUN   TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker
+=== RUN   TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/claude
+=== RUN   TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/codex
+=== RUN   TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/grok
+=== RUN   TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/rovodev
+=== RUN   TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/opencode
+=== RUN   TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/pi
+=== RUN   TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/copilot
+=== RUN   TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/cursor
+=== RUN   TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/antigravity
+=== RUN   TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/acp:some-target
+--- PASS: TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker (0.00s)
+    --- PASS: TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/claude (0.00s)
+    --- PASS: TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/codex (0.00s)
+    --- PASS: TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/grok (0.00s)
+    --- PASS: TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/rovodev (0.00s)
+    --- PASS: TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/opencode (0.00s)
+    --- PASS: TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/pi (0.00s)
+    --- PASS: TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/copilot (0.00s)
+    --- PASS: TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/cursor (0.00s)
+    --- PASS: TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/antigravity (0.00s)
+    --- PASS: TestEverySupportedAdapterCarriesTheRunOverlayAndGateMarker/acp:some-target (0.00s)
+=== RUN   TestGitSafeEnv_CompactAdviserDisableWinsOverOverlay
+--- PASS: TestGitSafeEnv_CompactAdviserDisableWinsOverOverlay (0.00s)
+=== RUN   TestStartServerWithPortAppliesForgeEnvironment
+2026/09/18 13:24:42 INFO managed agent server started agent=test pid=4082
+2026/09/18 13:24:42 WARN managed agent server exited agent=test pid=4082 error="exit status 1"
+2026/09/18 13:24:42 WARN managed agent server startup failed agent=test pid=4082 error="server exited before becoming healthy: exit status 1"
+--- PASS: TestStartServerWithPortAppliesForgeEnvironment (0.11s)
+PASS
+ok  	github.com/kunchenguid/no-mistakes/internal/agent	0.295s
