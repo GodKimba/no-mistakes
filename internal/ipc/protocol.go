@@ -91,7 +91,8 @@ type PushReceivedParams struct {
 	// ReconciledPreviousHead is the head a reconciled private mirror branch
 	// carried before the pusher archived and removed it. The push re-creates the
 	// branch, so the hook reports no previous head of its own. It is a claim the
-	// daemon accepts only against the gate's own archive tag.
+	// daemon accepts only after verifying the gate's archive and, for a
+	// nonce-bound launch, its candidate/nonce reconciliation binding.
 	ReconciledPreviousHead string `json:"reconciled_previous_head,omitempty"`
 }
 

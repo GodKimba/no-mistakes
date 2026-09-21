@@ -424,7 +424,8 @@ func formatReconciledPreviousHeadPushOption(head string) string {
 
 // parseReconciledPreviousHeadPushOptions extracts the pre-reconciliation head
 // push option, if any. The last occurrence wins. The value is only a claim: the
-// daemon accepts it solely when the gate's own archive tag records it.
+// daemon verifies the gate's archive and, for a nonce-bound launch, the durable
+// candidate/nonce reconciliation binding before accepting it.
 func parseReconciledPreviousHeadPushOptions(options []string) (string, error) {
 	head := ""
 	for _, option := range options {
