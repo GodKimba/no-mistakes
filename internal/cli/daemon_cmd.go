@@ -395,6 +395,18 @@ func probeDaemonOmitIntent(client *ipc.Client) error {
 	return nil
 }
 
+func probeDaemonProofReconciliation(client *ipc.Client) error {
+	var result ipc.ProbeProofReconciliationResult
+	err := client.Call(ipc.MethodProbeProofReconciliation, &ipc.ProbeProofReconciliationParams{}, &result)
+	if err == nil && !result.OK {
+		err = errors.New("daemon declined proof reconciliation")
+	}
+	if err != nil {
+		return fmt.Errorf("the running daemon is too old to preserve proof reconciliation evidence (%v); restart it with `no-mistakes daemon restart` so the current binary serves it", err)
+	}
+	return nil
+}
+
 // reconciledPreviousHeadPushOptionPrefix carries the pre-reconciliation private
 // mirror head through a git push. A reconciled branch is deleted and re-created
 // by that push, so the hook sees no previous head of its own.

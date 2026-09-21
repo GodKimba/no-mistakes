@@ -27,10 +27,11 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, hook, wantError                string
 		omitPrivate, fastForward, moveHead, active bool
-		delayReceipt, retryAfterError              bool
+		delayReceipt, retryAfterError, oldDaemon    bool
 	}{
 		{name: "ordinary rewritten", mode: "ordinary"},
 		{name: "proof rewritten", mode: "proof"},
+		{name: "proof old daemon", mode: "proof", oldDaemon: true, wantError: "too old"},
 		{name: "proof delayed registration", mode: "proof", delayReceipt: true},
 		{name: "proof retry after registration error", mode: "proof", retryAfterError: true},
 		{name: "proof fast forward", mode: "proof", fastForward: true},
@@ -159,6 +160,11 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 				}
 				return &ipc.GetRunsResult{Runs: []ipc.RunInfo{{ID: "new-run", HeadSHA: candidate}}}, nil
 			})
+			if !tc.oldDaemon {
+				srv.Handle(ipc.MethodProbeProofReconciliation, func(context.Context, json.RawMessage) (interface{}, error) {
+					return &ipc.ProbeProofReconciliationResult{OK: true}, nil
+				})
+			}
 			claimCalls := 0
 			srv.Handle(ipc.MethodClaimLaunchReceipt, func(_ context.Context, raw json.RawMessage) (interface{}, error) {
 				var req ipc.ClaimLaunchReceiptParams
@@ -243,12 +249,14 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 				t.Fatalf("archive changed: %s", got)
 			}
 			archive := "refs/tags/no-mistakes-abandoned/" + run.Branch + "/" + privateHead
-			if !tc.omitPrivate && !tc.fastForward && !tc.active {
+			if !tc.oldDaemon && !tc.omitPrivate && !tc.fastForward && !tc.active {
 				if got := cliGit(t, gateDir, "rev-parse", archive); got != privateHead {
 					t.Fatalf("admission archive = %s", got)
 				}
-			} else if got := cliGit(t, gateDir, "for-each-ref", "--format=%(refname)", archive); got != "" {
-				t.Fatalf("unexpected reconciliation archive: %s", got)
+			} else if !tc.oldDaemon {
+				if got := cliGit(t, gateDir, "for-each-ref", "--format=%(refname)", archive); got != "" {
+					t.Fatalf("unexpected reconciliation archive: %s", got)
+				}
 			}
 			oldRun, err := d.GetRun(run.ID)
 			if err != nil {

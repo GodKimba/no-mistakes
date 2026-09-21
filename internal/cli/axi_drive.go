@@ -687,6 +687,9 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 	if state := freshRunBranchOwnershipState(ctx, env); state != nil {
 		return nil, &branchOwnershipError{state: *state}
 	}
+	if err := probeDaemonProofReconciliation(env.client); err != nil {
+		return nil, err
+	}
 	// Proof mode changes launch identity, not private-mirror admission. Use
 	// the same preservation proof as an ordinary fresh submission, bound to
 	// the nonce's immutable head (never a refreshed HEAD or an ownership
