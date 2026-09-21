@@ -687,19 +687,31 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 	if state := freshRunBranchOwnershipState(ctx, env); state != nil {
 		return nil, &branchOwnershipError{state: *state}
 	}
-	if err := probeDaemonProofReconciliation(env.client); err != nil {
-		return nil, err
-	}
 	// Proof mode changes launch identity, not private-mirror admission. Use
 	// the same preservation proof as an ordinary fresh submission, bound to
 	// the nonce's immutable head (never a refreshed HEAD or an ownership
 	// exception). Recovery may have legitimately kept a different history.
 	gateDir := env.p.RepoDir(env.repo.ID)
-	reconciliation, err := gate.ReconcileStaleBranch(ctx, gateDir, ".", branch, headSHA, "")
+	plan, err := gate.PlanStaleBranchReconciliation(ctx, gateDir, ".", branch, headSHA, "")
 	if err != nil {
 		return nil, fmt.Errorf("prepare private mirror for %q: %w", branch, err)
 	}
-	reconciledPreviousHead := reconciliation.PreviousHead
+	reconciledPreviousHead := gate.ReconciledPreviousHead(ctx, gateDir, branch, headSHA, launchNonce)
+	if plan.Reconcile || reconciledPreviousHead != "" {
+		if err := probeDaemonProofReconciliation(env.client); err != nil {
+			return nil, err
+		}
+	}
+	reconciliation := gate.StaleBranchReconciliation{}
+	if plan.Reconcile {
+		reconciliation, err = gate.ApplyStaleBranchReconciliation(ctx, gateDir, plan)
+		if err != nil {
+			return nil, fmt.Errorf("apply private mirror reconciliation for %q: %w", branch, err)
+		}
+		if reconciliation.PreviousHead != "" {
+			reconciledPreviousHead = reconciliation.PreviousHead
+		}
+	}
 	if reconciledPreviousHead != "" {
 		if err := gate.RecordReconciliationBinding(ctx, gateDir, branch, headSHA, launchNonce, reconciledPreviousHead); err != nil {
 			restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), triggerWaitTimeout)
@@ -710,8 +722,6 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 			}
 			return nil, fmt.Errorf("record reconciliation binding: %w", err)
 		}
-	} else {
-		reconciledPreviousHead = gate.ReconciledPreviousHead(ctx, gateDir, branch, headSHA, launchNonce)
 	}
 	if opt := formatReconciledPreviousHeadPushOption(reconciledPreviousHead); opt != "" {
 		pushOptions = append(pushOptions, opt)
