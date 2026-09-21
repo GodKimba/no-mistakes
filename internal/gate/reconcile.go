@@ -277,7 +277,8 @@ func ReconciledPreviousHead(ctx context.Context, gateDir, branch, submittedHead,
 
 func reconciliationBindingRef(branch, submittedHead, launchNonce string) string {
 	branchHash := sha256.Sum256([]byte(strings.TrimSpace(branch)))
-	return fmt.Sprintf("refs/no-mistakes/reconciled/%x/%s/%s", branchHash, strings.TrimSpace(submittedHead), strings.TrimSpace(launchNonce))
+	nonceHash := sha256.Sum256([]byte(strings.TrimSpace(launchNonce)))
+	return fmt.Sprintf("refs/no-mistakes/reconciled/%x/%s/%x", branchHash, strings.TrimSpace(submittedHead), nonceHash)
 }
 
 // privateCommitsAbsentFromLive names private-only commits lacking matching

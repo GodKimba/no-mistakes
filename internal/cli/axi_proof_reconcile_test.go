@@ -26,11 +26,13 @@ import (
 func TestTriggerAfterArchiveRecovery(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, hook, wantError                string
+		launchNonce                                string
 		omitPrivate, fastForward, moveHead, active bool
 		delayReceipt, retryAfterError, oldDaemon    bool
 	}{
 		{name: "ordinary rewritten", mode: "ordinary"},
 		{name: "proof rewritten", mode: "proof"},
+		{name: "proof ref-safe nonce", mode: "proof", launchNonce: "proof~1"},
 		{name: "proof old daemon", mode: "proof", oldDaemon: true, wantError: "too old"},
 		{name: "proof delayed registration", mode: "proof", delayReceipt: true},
 		{name: "proof retry after registration error", mode: "proof", retryAfterError: true},
@@ -209,15 +211,19 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 			chdir(t, dir)
 			env := &axiEnv{p: p, d: d, repo: repo, cfg: config.DefaultGlobalConfig(), client: client}
 			var receipt *ipc.LaunchReceipt
+			nonce := tc.launchNonce
+			if nonce == "" {
+				nonce = "nonce"
+			}
 			if tc.mode == "ordinary" {
 				_, err = triggerRun(ctx, env, run.Branch, nil, "validate reconstructed work", "", false)
 			} else if tc.retryAfterError {
-				if _, firstErr := triggerProofRun(ctx, env, run.Branch, candidate, nil, "validate reconstructed work", "", false, "nonce", "generation"); firstErr == nil || !strings.Contains(firstErr.Error(), "registration unavailable") {
+				if _, firstErr := triggerProofRun(ctx, env, run.Branch, candidate, nil, "validate reconstructed work", "", false, nonce, "generation"); firstErr == nil || !strings.Contains(firstErr.Error(), "registration unavailable") {
 					t.Fatalf("first proof attempt error = %v", firstErr)
 				}
-				receipt, err = triggerProofRun(ctx, env, run.Branch, candidate, nil, "validate reconstructed work", "", false, "nonce", "generation")
+				receipt, err = triggerProofRun(ctx, env, run.Branch, candidate, nil, "validate reconstructed work", "", false, nonce, "generation")
 			} else {
-				receipt, err = triggerProofRun(ctx, env, run.Branch, candidate, nil, "validate reconstructed work", "", false, "nonce", "generation")
+				receipt, err = triggerProofRun(ctx, env, run.Branch, candidate, nil, "validate reconstructed work", "", false, nonce, "generation")
 			}
 			if tc.wantError != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantError) || receipt != nil {
@@ -279,10 +285,10 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 					t.Fatalf("missing previous-head provenance: %s", options)
 				}
 				if tc.mode == "proof" {
-					if receipt.SubmittedHeadSHA != candidate || receipt.LaunchNonce != "nonce" || receipt.ValidationGeneration != "generation" {
+					if receipt.SubmittedHeadSHA != candidate || receipt.LaunchNonce != nonce || receipt.ValidationGeneration != "generation" {
 						t.Fatalf("receipt lost identity: %+v", receipt)
 					}
-					for _, opt := range []string{formatLaunchNoncePushOption("nonce"), formatValidationGenerationPushOption("generation")} {
+					for _, opt := range []string{formatLaunchNoncePushOption(nonce), formatValidationGenerationPushOption("generation")} {
 						if !strings.Contains(string(options), opt) {
 							t.Fatalf("missing option %s: %s", opt, options)
 						}

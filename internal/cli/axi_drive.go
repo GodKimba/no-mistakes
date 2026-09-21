@@ -699,8 +699,9 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 	if err != nil {
 		return nil, fmt.Errorf("prepare private mirror for %q: %w", branch, err)
 	}
-	if reconciliation.PreviousHead != "" {
-		if err := gate.RecordReconciliationBinding(ctx, gateDir, branch, headSHA, launchNonce, reconciliation.PreviousHead); err != nil {
+	reconciledPreviousHead := reconciliation.PreviousHead
+	if reconciledPreviousHead != "" {
+		if err := gate.RecordReconciliationBinding(ctx, gateDir, branch, headSHA, launchNonce, reconciledPreviousHead); err != nil {
 			restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), triggerWaitTimeout)
 			restoreErr := gate.RestoreReconciledBranch(restoreCtx, gateDir, branch, reconciliation)
 			cancel()
@@ -709,10 +710,10 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 			}
 			return nil, fmt.Errorf("record reconciliation binding: %w", err)
 		}
-	} else if previousHead := gate.ReconciledPreviousHead(ctx, gateDir, branch, headSHA, launchNonce); previousHead != "" {
-		reconciliation = gate.StaleBranchReconciliation{Reconciled: true, PreviousHead: previousHead}
+	} else {
+		reconciledPreviousHead = gate.ReconciledPreviousHead(ctx, gateDir, branch, headSHA, launchNonce)
 	}
-	if opt := formatReconciledPreviousHeadPushOption(reconciliation.PreviousHead); opt != "" {
+	if opt := formatReconciledPreviousHeadPushOption(reconciledPreviousHead); opt != "" {
 		pushOptions = append(pushOptions, opt)
 	}
 	pushErr := git.PushCommitWithOptionsSkippingHooks(ctx, ".", gate.RemoteName, headSHA, "refs/heads/"+branch, "", false, pushOptions)
@@ -737,7 +738,7 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 	if err := env.client.Call(ipc.MethodStartFreshRun, &ipc.StartFreshRunParams{
 		RepoID: env.repo.ID, Branch: branch, HeadSHA: headSHA, SkipSteps: skipSteps,
 		Intent: intent, LaunchNonce: launchNonce, ValidationGeneration: validationGeneration, PRBaseBranch: baseBranch, OmitIntent: omitIntent,
-		ReconciledPreviousHead: reconciliation.PreviousHead, PiProfile: profile,
+		ReconciledPreviousHead: reconciledPreviousHead, PiProfile: profile,
 	}, &result); err != nil {
 		return nil, fmt.Errorf("start fresh run: %w", err)
 	}
