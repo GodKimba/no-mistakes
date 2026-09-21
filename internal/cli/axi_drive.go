@@ -710,6 +710,11 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 		}
 		if reconciliation.PreviousHead != "" {
 			reconciledPreviousHead = reconciliation.PreviousHead
+		} else {
+			reconciledPreviousHead = gate.ReconciledPreviousHead(ctx, gateDir, branch, headSHA, launchNonce)
+			if reconciledPreviousHead == "" {
+				return nil, fmt.Errorf("private mirror reconciliation was superseded without durable provenance")
+			}
 		}
 	}
 	if reconciledPreviousHead != "" {
