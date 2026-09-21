@@ -687,8 +687,25 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 	if state := freshRunBranchOwnershipState(ctx, env); state != nil {
 		return nil, &branchOwnershipError{state: *state}
 	}
+	// Proof mode changes launch identity, not private-mirror admission. Use
+	// the same preservation proof as an ordinary fresh submission, bound to
+	// the nonce's immutable head (never a refreshed HEAD or an ownership
+	// exception). Recovery may have legitimately kept a different history.
+	reconciliation, err := gate.ReconcileStaleBranch(ctx, env.p.RepoDir(env.repo.ID), ".", branch, headSHA, "")
+	if err != nil {
+		return nil, fmt.Errorf("prepare private mirror for %q: %w", branch, err)
+	}
+	if opt := formatReconciledPreviousHeadPushOption(reconciliation.PreviousHead); opt != "" {
+		pushOptions = append(pushOptions, opt)
+	}
 	pushErr := git.PushCommitWithOptionsSkippingHooks(ctx, ".", gate.RemoteName, headSHA, "refs/heads/"+branch, "", false, pushOptions)
 	if pushErr != nil {
+		restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), triggerWaitTimeout)
+		restoreErr := gate.RestoreReconciledBranch(restoreCtx, env.p.RepoDir(env.repo.ID), branch, reconciliation)
+		cancel()
+		if restoreErr != nil {
+			return nil, fmt.Errorf("push %q to gate: %v; restore reconciled branch: %w", branch, pushErr, restoreErr)
+		}
 		if state := freshRunBranchOwnershipState(ctx, env); state != nil {
 			return nil, &branchOwnershipError{state: *state}
 		}
