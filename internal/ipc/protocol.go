@@ -107,8 +107,9 @@ type StartFreshRunParams struct {
 	Intent               string           `json:"intent"`
 	LaunchNonce          string           `json:"launch_nonce"`
 	ValidationGeneration string           `json:"validation_generation"`
-	PRBaseBranch         string           `json:"pr_base_branch,omitempty"`
-	OmitIntent           bool             `json:"omit_intent,omitempty"`
+	PRBaseBranch             string           `json:"pr_base_branch,omitempty"`
+	OmitIntent               bool             `json:"omit_intent,omitempty"`
+	ReconciledPreviousHead   string           `json:"reconciled_previous_head,omitempty"`
 }
 
 // ProbeOmitIntentParams is the empty request for MethodProbeOmitIntent.

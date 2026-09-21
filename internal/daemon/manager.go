@@ -806,7 +806,11 @@ func (m *RunManager) HandleStartFreshRun(ctx context.Context, params *ipc.StartF
 	if repo == nil {
 		return ipc.LaunchReceipt{}, fmt.Errorf("unknown repo %s", params.RepoID)
 	}
-	return m.startFreshLaunch(ctx, repo, params.Branch, params.HeadSHA, "", m.paths.RepoDir(repo.ID), params.SkipSteps, params.Intent, params.LaunchNonce, params.ValidationGeneration, params.PRBaseBranch, params.OmitIntent, "fresh", params.PiProfile)
+	baseSHA := ""
+	if gate.ArchivedHeadRecorded(ctx, m.paths.RepoDir(repo.ID), params.Branch, params.ReconciledPreviousHead) {
+		baseSHA = strings.TrimSpace(params.ReconciledPreviousHead)
+	}
+	return m.startFreshLaunch(ctx, repo, params.Branch, params.HeadSHA, baseSHA, m.paths.RepoDir(repo.ID), params.SkipSteps, params.Intent, params.LaunchNonce, params.ValidationGeneration, params.PRBaseBranch, params.OmitIntent, "fresh", params.PiProfile)
 }
 
 // startFreshLaunch owns proof identity under the branch lock. A nonce may
