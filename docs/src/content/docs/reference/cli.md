@@ -210,6 +210,7 @@ An explicit `--base-branch` is persisted on creation and must match the stored p
 A replay that adds `--no-publish-intent` against a run bound to publish the section is refused for the same reason; the stored omit decision folds in the global [`intent.publish_intent`](/no-mistakes/reference/global-config/#intent) default at creation, so a replay without the flag still matches a run whose row omits publication.
 Explicit `--model`/`--effort` must match a stored pin the same way; omitting both preserves it.
 A conflicting claim does not consume the first `created` disposition.
+When a strict launch must reconcile a stale private mirror, AXI first checks that the running daemon supports carrying the archived previous head into admission; an older daemon is refused before reconciliation and the error instructs you to restart it with the current binary. The reconciliation uses the same immutable submitted head as the receipt and preserves the private mirror's rewrite provenance without forcing it.
 Without the two proof flags, ordinary reattachment is unchanged, and historical runs without a nonce are not adopted into a proof binding.
 
 ## no-mistakes axi respond
