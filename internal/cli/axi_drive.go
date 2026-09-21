@@ -697,6 +697,9 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 		return nil, fmt.Errorf("prepare private mirror for %q: %w", branch, err)
 	}
 	reconciledPreviousHead := gate.ReconciledPreviousHead(ctx, gateDir, branch, headSHA, launchNonce)
+	if plan.Reconcile && reconciledPreviousHead != "" && reconciledPreviousHead != plan.PreviousHead {
+		return nil, fmt.Errorf("private mirror reconciliation provenance does not match the planned head")
+	}
 	if plan.Reconcile || reconciledPreviousHead != "" {
 		if err := probeDaemonProofReconciliation(env.client); err != nil {
 			return nil, err
@@ -714,6 +717,9 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 			reconciledPreviousHead = gate.ReconciledPreviousHead(ctx, gateDir, branch, headSHA, launchNonce)
 			if reconciledPreviousHead == "" {
 				return nil, fmt.Errorf("private mirror reconciliation was superseded without durable provenance")
+			}
+			if reconciledPreviousHead != plan.PreviousHead {
+				return nil, fmt.Errorf("private mirror reconciliation provenance does not match the planned head")
 			}
 		}
 	}
