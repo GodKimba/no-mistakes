@@ -26,9 +26,11 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, hook, wantError                string
 		omitPrivate, fastForward, moveHead, active bool
+		delayReceipt                              bool
 	}{
 		{name: "ordinary rewritten", mode: "ordinary"},
 		{name: "proof rewritten", mode: "proof"},
+		{name: "proof delayed registration", mode: "proof", delayReceipt: true},
 		{name: "proof fast forward", mode: "proof", fastForward: true},
 		{name: "proof pins captured head", mode: "proof", moveHead: true},
 		{name: "proof active pipeline ownership", mode: "proof", active: true, wantError: "pipeline"},
@@ -160,7 +162,20 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 				if err := json.Unmarshal(raw, &req); err != nil {
 					return nil, err
 				}
+				if tc.delayReceipt {
+					return &ipc.ClaimLaunchReceiptResult{}, nil
+				}
 				return &ipc.ClaimLaunchReceiptResult{Receipt: &ipc.LaunchReceipt{RunID: "new-run", LaunchNonce: req.LaunchNonce, ValidationGeneration: req.ValidationGeneration, SubmittedHeadSHA: req.SubmittedHeadSHA, IntentDigest: req.IntentDigest}}, nil
+			})
+			srv.Handle(ipc.MethodStartFreshRun, func(_ context.Context, raw json.RawMessage) (interface{}, error) {
+				var req ipc.StartFreshRunParams
+				if err := json.Unmarshal(raw, &req); err != nil {
+					return nil, err
+				}
+				if tc.delayReceipt && req.ReconciledPreviousHead != privateHead {
+					t.Fatalf("fresh fallback lost previous-head provenance: %+v", req)
+				}
+				return &ipc.StartFreshRunResult{Receipt: ipc.LaunchReceipt{RunID: "new-run", LaunchNonce: req.LaunchNonce, ValidationGeneration: req.ValidationGeneration, SubmittedHeadSHA: req.HeadSHA, IntentDigest: digestLaunchIntent(req.Intent)}}, nil
 			})
 			done := make(chan error, 1)
 			go func() { done <- srv.Serve(p.Socket()) }()
