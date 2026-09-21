@@ -1278,6 +1278,9 @@ func registerHandlers(srv *ipc.Server, mgr *RunManager, d *db.DB, shutdown func(
 	srv.Handle(ipc.MethodProbeOmitIntent, func(context.Context, json.RawMessage) (interface{}, error) {
 		return &ipc.ProbeOmitIntentResult{OK: true}, nil
 	})
+	srv.Handle(ipc.MethodProbeProofReconciliation, func(context.Context, json.RawMessage) (interface{}, error) {
+		return &ipc.ProbeProofReconciliationResult{OK: true}, nil
+	})
 
 	srv.Handle(ipc.MethodResolvePiProfile, func(ctx context.Context, params json.RawMessage) (interface{}, error) {
 		var request agentcfg.PiProfile

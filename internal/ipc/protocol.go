@@ -12,8 +12,9 @@ import (
 const (
 	MethodPushReceived       = "push_received"
 	MethodResolvePiProfile   = "resolve_pi_profile"
-	MethodProbeOmitIntent    = "probe_omit_intent"
-	MethodStartFreshRun      = "start_fresh_run"
+	MethodProbeOmitIntent          = "probe_omit_intent"
+	MethodProbeProofReconciliation = "probe_proof_reconciliation"
+	MethodStartFreshRun            = "start_fresh_run"
 	MethodClaimLaunchReceipt = "claim_launch_receipt"
 	MethodGetRun             = "get_run"
 	MethodGetStepDiff        = "get_step_diff"
@@ -115,6 +116,9 @@ type StartFreshRunParams struct {
 // ProbeOmitIntentParams is the empty request for MethodProbeOmitIntent.
 type ProbeOmitIntentParams struct{}
 
+// ProbeProofReconciliationParams is the empty request for MethodProbeProofReconciliation.
+type ProbeProofReconciliationParams struct{}
+
 // ProbeOmitIntentResult answers MethodProbeOmitIntent. The method exists only
 // as a capability check: daemon requests decode JSON permissively, so an older
 // daemon would silently drop the unknown omit_intent field from an existing
@@ -122,6 +126,11 @@ type ProbeOmitIntentParams struct{}
 // is refused by such a daemon (method not found) instead of succeeding
 // silently, so a client that reaches OK=true knows omit_intent is honored.
 type ProbeOmitIntentResult struct {
+	OK bool `json:"ok"`
+}
+
+// ProbeProofReconciliationResult answers MethodProbeProofReconciliation.
+type ProbeProofReconciliationResult struct {
 	OK bool `json:"ok"`
 }
 
