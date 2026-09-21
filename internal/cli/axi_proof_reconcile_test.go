@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,11 +27,12 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, hook, wantError                string
 		omitPrivate, fastForward, moveHead, active bool
-		delayReceipt                              bool
+		delayReceipt, retryAfterError              bool
 	}{
 		{name: "ordinary rewritten", mode: "ordinary"},
 		{name: "proof rewritten", mode: "proof"},
 		{name: "proof delayed registration", mode: "proof", delayReceipt: true},
+		{name: "proof retry after registration error", mode: "proof", retryAfterError: true},
 		{name: "proof fast forward", mode: "proof", fastForward: true},
 		{name: "proof pins captured head", mode: "proof", moveHead: true},
 		{name: "proof active pipeline ownership", mode: "proof", active: true, wantError: "pipeline"},
@@ -157,12 +159,17 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 				}
 				return &ipc.GetRunsResult{Runs: []ipc.RunInfo{{ID: "new-run", HeadSHA: candidate}}}, nil
 			})
+			claimCalls := 0
 			srv.Handle(ipc.MethodClaimLaunchReceipt, func(_ context.Context, raw json.RawMessage) (interface{}, error) {
 				var req ipc.ClaimLaunchReceiptParams
 				if err := json.Unmarshal(raw, &req); err != nil {
 					return nil, err
 				}
-				if tc.delayReceipt {
+				claimCalls++
+				if tc.retryAfterError && claimCalls == 1 {
+					return nil, fmt.Errorf("registration unavailable")
+				}
+				if tc.delayReceipt || tc.retryAfterError {
 					return &ipc.ClaimLaunchReceiptResult{}, nil
 				}
 				return &ipc.ClaimLaunchReceiptResult{Receipt: &ipc.LaunchReceipt{RunID: "new-run", LaunchNonce: req.LaunchNonce, ValidationGeneration: req.ValidationGeneration, SubmittedHeadSHA: req.SubmittedHeadSHA, IntentDigest: req.IntentDigest}}, nil
@@ -172,7 +179,7 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 				if err := json.Unmarshal(raw, &req); err != nil {
 					return nil, err
 				}
-				if tc.delayReceipt && req.ReconciledPreviousHead != privateHead {
+				if (tc.delayReceipt || tc.retryAfterError) && req.ReconciledPreviousHead != privateHead {
 					t.Fatalf("fresh fallback lost previous-head provenance: %+v", req)
 				}
 				return &ipc.StartFreshRunResult{Receipt: ipc.LaunchReceipt{RunID: "new-run", LaunchNonce: req.LaunchNonce, ValidationGeneration: req.ValidationGeneration, SubmittedHeadSHA: req.HeadSHA, IntentDigest: digestLaunchIntent(req.Intent)}}, nil
@@ -198,6 +205,11 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 			var receipt *ipc.LaunchReceipt
 			if tc.mode == "ordinary" {
 				_, err = triggerRun(ctx, env, run.Branch, nil, "validate reconstructed work", "", false)
+			} else if tc.retryAfterError {
+				if _, firstErr := triggerProofRun(ctx, env, run.Branch, candidate, nil, "validate reconstructed work", "", false, "nonce", "generation"); firstErr == nil || !strings.Contains(firstErr.Error(), "registration unavailable") {
+					t.Fatalf("first proof attempt error = %v", firstErr)
+				}
+				receipt, err = triggerProofRun(ctx, env, run.Branch, candidate, nil, "validate reconstructed work", "", false, "nonce", "generation")
 			} else {
 				receipt, err = triggerProofRun(ctx, env, run.Branch, candidate, nil, "validate reconstructed work", "", false, "nonce", "generation")
 			}
