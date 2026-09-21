@@ -9,6 +9,53 @@ import (
 	"testing"
 )
 
+func TestReconciliationBindingMustMatchPlannedPrivateHead(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	work := initReconcileRepo(t)
+	base := reconcileGit(t, work, "rev-parse", "HEAD")
+
+	writeReconcileFile(t, work, "private.txt", "private\n")
+	reconcileGit(t, work, "add", "private.txt")
+	reconcileGit(t, work, "commit", "-m", "private")
+	privateHead := reconcileGit(t, work, "rev-parse", "HEAD")
+	reconcileGit(t, work, "reset", "--hard", base)
+	writeReconcileFile(t, work, "planned.txt", "planned\n")
+	reconcileGit(t, work, "add", "planned.txt")
+	reconcileGit(t, work, "commit", "-m", "planned")
+	plannedHead := reconcileGit(t, work, "rev-parse", "HEAD")
+	reconcileGit(t, work, "reset", "--hard", base)
+	writeReconcileFile(t, work, "planned.txt", "planned\n")
+	writeReconcileFile(t, work, "candidate.txt", "candidate\n")
+	reconcileGit(t, work, "add", ".")
+	reconcileGit(t, work, "commit", "-m", "candidate")
+	submittedHead := reconcileGit(t, work, "rev-parse", "HEAD")
+
+	gateDir := filepath.Join(t.TempDir(), "gate.git")
+	reconcileGit(t, "", "init", "--bare", gateDir)
+	reconcileGit(t, work, "push", gateDir, plannedHead+":refs/heads/feature/reconcile")
+	reconcileGit(t, work, "push", gateDir, privateHead+":refs/no-mistakes/test/private")
+	archive := "refs/tags/no-mistakes-abandoned/feature/reconcile/" + privateHead
+	reconcileGit(t, gateDir, "update-ref", archive, privateHead)
+	if err := RecordReconciliationBinding(ctx, gateDir, "feature/reconcile", submittedHead, "proof~1", privateHead); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := PlanStaleBranchReconciliation(ctx, gateDir, work, "feature/reconcile", submittedHead, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.Reconcile || plan.PreviousHead != plannedHead {
+		t.Fatalf("plan = %+v, want planned head %s", plan, plannedHead)
+	}
+	if recovered := ReconciledPreviousHead(ctx, gateDir, "feature/reconcile", submittedHead, "proof~1"); recovered != privateHead {
+		t.Fatalf("recovered binding = %s, want stale private head %s", recovered, privateHead)
+	}
+	if privateHead == plan.PreviousHead {
+		t.Fatal("fixture did not create distinct stale and planned heads")
+	}
+}
+
 func TestReconcileStaleBranchArchivesPatchEquivalentHeadBeforeNonForcePush(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
