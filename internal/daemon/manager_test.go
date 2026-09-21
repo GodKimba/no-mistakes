@@ -14,6 +14,7 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/agent"
 	"github.com/kunchenguid/no-mistakes/internal/custody"
 	"github.com/kunchenguid/no-mistakes/internal/db"
+	"github.com/kunchenguid/no-mistakes/internal/gate"
 	"github.com/kunchenguid/no-mistakes/internal/git"
 	"github.com/kunchenguid/no-mistakes/internal/ipc"
 	"github.com/kunchenguid/no-mistakes/internal/pipeline"
@@ -287,6 +288,49 @@ func TestProofLaunchReceiptPushCrashWindowConcurrentClaimsAndImmutableReplay(t *
 	}
 	logLaunchEvidence(t, "advanced-head-replay", replay.Receipt)
 	logLaunchEvidence(t, "persisted-base", *stored.PRBaseBranch)
+}
+
+func TestPushReceivedUsesBoundReconciliationAfterInterveningAncestor(t *testing.T) {
+	step := &mockPassStep{name: types.StepReview}
+	p, d := startTestDaemonWithSteps(t, func() []pipeline.Step { return []pipeline.Step{step} })
+	repo, initial := setupTestGitRepo(t, p, d, "proof-ancestor-reconcile-repo")
+	gitCmd(t, repo.WorkingPath, "checkout", "-b", "private")
+	gitCmd(t, repo.WorkingPath, "commit", "--allow-empty", "-m", "private")
+	privateHead := gitOutput(t, repo.WorkingPath, "rev-parse", "HEAD")
+	gitCmd(t, repo.WorkingPath, "checkout", "main")
+	gitCmd(t, repo.WorkingPath, "commit", "--allow-empty", "-m", "ancestor")
+	ancestor := gitOutput(t, repo.WorkingPath, "rev-parse", "HEAD")
+	gitCmd(t, repo.WorkingPath, "commit", "--allow-empty", "-m", "submitted")
+	submitted := gitOutput(t, repo.WorkingPath, "rev-parse", "HEAD")
+	gitCmd(t, repo.WorkingPath, "push", "gate", ancestor+":refs/heads/main")
+	gitCmd(t, repo.WorkingPath, "push", "gate", submitted+":refs/heads/main")
+	gitCmd(t, repo.WorkingPath, "push", "gate", privateHead+":refs/no-mistakes/test/private")
+	archive := "refs/tags/no-mistakes-abandoned/main/" + privateHead
+	gitCmd(t, p.RepoDir(repo.ID), "update-ref", archive, privateHead)
+	if err := gate.RecordReconciliationBinding(context.Background(), p.RepoDir(repo.ID), "main", submitted, "proof~1", privateHead); err != nil {
+		t.Fatal(err)
+	}
+
+	client, err := ipc.Dial(p.Socket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	var result ipc.PushReceivedResult
+	if err := client.Call(ipc.MethodPushReceived, &ipc.PushReceivedParams{
+		Gate: p.RepoDir(repo.ID), Ref: "refs/heads/main", Old: ancestor, New: submitted,
+		Intent: "preserve proof provenance", LaunchNonce: "proof~1", ValidationGeneration: "generation",
+		ReconciledPreviousHead: privateHead,
+	}, &result); err != nil {
+		t.Fatal(err)
+	}
+	run, err := d.GetRun(result.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run == nil || run.BaseSHA != privateHead {
+		t.Fatalf("run base = %#v, want bound private head %s (initial %s)", run, privateHead, initial)
+	}
 }
 
 func TestPushReceivedSkipStepsConfiguresExecutor(t *testing.T) {
