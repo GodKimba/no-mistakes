@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -242,6 +243,41 @@ func ArchivedHeadRecorded(ctx context.Context, gateDir, branch, head string) boo
 	}
 	objectType, err := git.Run(ctx, gateDir, "cat-file", "-t", head)
 	return err == nil && objectType == "commit"
+}
+
+func RecordReconciliationBinding(ctx context.Context, gateDir, branch, submittedHead, launchNonce, previousHead string) error {
+	if !ArchivedHeadRecorded(ctx, gateDir, branch, previousHead) {
+		return fmt.Errorf("reconciliation binding: previous head is not archived")
+	}
+	ref := reconciliationBindingRef(branch, submittedHead, launchNonce)
+	existing, exists, err := git.DirectRefTarget(ctx, gateDir, ref)
+	if err != nil {
+		return fmt.Errorf("inspect reconciliation binding %s: %w", ref, err)
+	}
+	if exists {
+		if existing != previousHead {
+			return fmt.Errorf("reconciliation binding %s points at %s, not %s", ref, existing, previousHead)
+		}
+		return nil
+	}
+	if _, err := git.Run(ctx, gateDir, "update-ref", "--no-deref", ref, previousHead, strings.Repeat("0", len(previousHead))); err != nil {
+		return fmt.Errorf("record reconciliation binding %s: %w", ref, err)
+	}
+	return nil
+}
+
+func ReconciledPreviousHead(ctx context.Context, gateDir, branch, submittedHead, launchNonce string) string {
+	ref := reconciliationBindingRef(branch, submittedHead, launchNonce)
+	previousHead, exists, err := git.DirectRefTarget(ctx, gateDir, ref)
+	if err != nil || !exists || !ArchivedHeadRecorded(ctx, gateDir, branch, previousHead) {
+		return ""
+	}
+	return previousHead
+}
+
+func reconciliationBindingRef(branch, submittedHead, launchNonce string) string {
+	branchHash := sha256.Sum256([]byte(strings.TrimSpace(branch)))
+	return fmt.Sprintf("refs/no-mistakes/reconciled/%x/%s/%s", branchHash, strings.TrimSpace(submittedHead), strings.TrimSpace(launchNonce))
 }
 
 // privateCommitsAbsentFromLive names private-only commits lacking matching

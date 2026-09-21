@@ -691,9 +691,23 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 	// the same preservation proof as an ordinary fresh submission, bound to
 	// the nonce's immutable head (never a refreshed HEAD or an ownership
 	// exception). Recovery may have legitimately kept a different history.
-	reconciliation, err := gate.ReconcileStaleBranch(ctx, env.p.RepoDir(env.repo.ID), ".", branch, headSHA, "")
+	gateDir := env.p.RepoDir(env.repo.ID)
+	reconciliation, err := gate.ReconcileStaleBranch(ctx, gateDir, ".", branch, headSHA, "")
 	if err != nil {
 		return nil, fmt.Errorf("prepare private mirror for %q: %w", branch, err)
+	}
+	if reconciliation.PreviousHead != "" {
+		if err := gate.RecordReconciliationBinding(ctx, gateDir, branch, headSHA, launchNonce, reconciliation.PreviousHead); err != nil {
+			restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), triggerWaitTimeout)
+			restoreErr := gate.RestoreReconciledBranch(restoreCtx, gateDir, branch, reconciliation)
+			cancel()
+			if restoreErr != nil {
+				return nil, fmt.Errorf("record reconciliation binding: %v; restore reconciled branch: %w", err, restoreErr)
+			}
+			return nil, fmt.Errorf("record reconciliation binding: %w", err)
+		}
+	} else if previousHead := gate.ReconciledPreviousHead(ctx, gateDir, branch, headSHA, launchNonce); previousHead != "" {
+		reconciliation = gate.StaleBranchReconciliation{Reconciled: true, PreviousHead: previousHead}
 	}
 	if opt := formatReconciledPreviousHeadPushOption(reconciliation.PreviousHead); opt != "" {
 		pushOptions = append(pushOptions, opt)
