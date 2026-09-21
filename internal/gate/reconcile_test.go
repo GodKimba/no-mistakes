@@ -9,6 +9,113 @@ import (
 	"testing"
 )
 
+func TestProofReconciliationAtomicPublication(t *testing.T) {
+	for _, scenario := range []string{"success", "existing", "prepared-rejection", "branch-moved", "archive-conflict", "binding-conflict", "archive-locked", "binding-locked", "branch-locked"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx := context.Background()
+			work := initReconcileRepo(t)
+			base := reconcileGit(t, work, "rev-parse", "HEAD")
+			writeReconcileFile(t, work, "private.txt", "preserved\n")
+			reconcileGit(t, work, "add", ".")
+			reconcileGit(t, work, "commit", "-m", "private")
+			previous := reconcileGit(t, work, "rev-parse", "HEAD")
+			reconcileGit(t, work, "reset", "--hard", base)
+			writeReconcileFile(t, work, "private.txt", "preserved\n")
+			writeReconcileFile(t, work, "candidate.txt", "candidate\n")
+			reconcileGit(t, work, "add", ".")
+			reconcileGit(t, work, "commit", "-m", "reconstructed")
+			candidate := reconcileGit(t, work, "rev-parse", "HEAD")
+			gateDir := filepath.Join(t.TempDir(), "gate.git")
+			reconcileGit(t, "", "init", "--bare", gateDir)
+			reconcileGit(t, work, "push", gateDir, previous+":refs/heads/topic")
+			plan, err := PlanStaleBranchReconciliation(ctx, gateDir, work, "topic", candidate, "")
+			if err != nil || !plan.Reconcile {
+				t.Fatalf("plan = %+v, %v", plan, err)
+			}
+			binding := reconciliationBindingRef("topic", candidate, "nonce")
+			switch scenario {
+			case "existing":
+				reconcileGit(t, gateDir, "update-ref", plan.ArchiveTag, previous)
+				reconcileGit(t, gateDir, "update-ref", binding, previous)
+			case "branch-moved":
+				reconcileGit(t, gateDir, "update-ref", plan.BranchRef, candidate)
+			case "archive-conflict":
+				reconcileGit(t, gateDir, "update-ref", plan.ArchiveTag, candidate)
+			case "binding-conflict":
+				reconcileGit(t, gateDir, "update-ref", binding, candidate)
+			case "archive-locked", "binding-locked", "branch-locked":
+				ref := map[string]string{"archive-locked": plan.ArchiveTag, "binding-locked": binding, "branch-locked": plan.BranchRef}[scenario]
+				lock := filepath.Join(gateDir, ref+".lock")
+				if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(lock, nil, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := reconcileGit(t, gateDir, "for-each-ref", "--format=%(refname) %(objectname)")
+			hook := "#!/bin/sh\nif [ \"$1\" = prepared ]; then\ncat > prepared-refs\n"
+			if scenario == "prepared-rejection" {
+				hook += "exit 1\n"
+			}
+			hook += "fi\n"
+			if err := os.WriteFile(filepath.Join(gateDir, "hooks", "reference-transaction"), []byte(hook), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			result, err := ApplyProofBranchReconciliation(ctx, gateDir, plan, candidate, "nonce")
+			if scenario != "success" && scenario != "existing" {
+				if err == nil || result.Reconciled {
+					t.Fatalf("expected atomic refusal, got %+v, %v", result, err)
+				}
+				if after := reconcileGit(t, gateDir, "for-each-ref", "--format=%(refname) %(objectname)"); after != before {
+					t.Fatalf("failed transaction changed refs:\nbefore: %s\nafter: %s", before, after)
+				}
+			} else {
+				if err != nil || !result.Reconciled || result.PreviousHead != previous {
+					t.Fatalf("publication = %+v, %v", result, err)
+				}
+				if got := ReconciledPreviousHead(ctx, gateDir, "topic", candidate, "nonce"); got != previous {
+					t.Fatalf("binding = %q, want %s", got, previous)
+				}
+				if got := reconcileGit(t, gateDir, "for-each-ref", "--format=%(refname)", plan.BranchRef); got != "" {
+					t.Fatalf("retired branch remains: %s", got)
+				}
+				prepared, err := os.ReadFile(filepath.Join(gateDir, "prepared-refs"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				refs := map[string]bool{}
+				for _, line := range strings.Split(strings.TrimSpace(string(prepared)), "\n") {
+					fields := strings.Fields(line)
+					if len(fields) != 3 {
+						t.Fatalf("invalid reference-transaction record: %q", line)
+					}
+					refs[fields[2]] = true
+				}
+				if !refs[plan.ArchiveTag] || !refs[binding] || !refs[plan.BranchRef] {
+					t.Fatalf("archive, binding and retirement not prepared together: %s", prepared)
+				}
+				if err := RestoreReconciledBranch(ctx, gateDir, "topic", result); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := ApplyProofBranchReconciliation(ctx, gateDir, plan, candidate, "nonce"); err != nil {
+					t.Fatalf("retry after restoration: %v", err)
+				}
+				reconcileGit(t, work, "push", gateDir, candidate+":refs/heads/topic")
+				if got := ReconciledPreviousHead(ctx, gateDir, "topic", candidate, "nonce"); got != previous {
+					t.Fatalf("push lost binding: %q", got)
+				}
+			}
+			if got := reconcileGit(t, work, "rev-parse", "HEAD"); got != candidate {
+				t.Fatalf("candidate moved: %s", got)
+			}
+			if got := reconcileGit(t, gateDir, "show", previous+":private.txt"); got != "preserved" {
+				t.Fatalf("private history changed: %s", got)
+			}
+		})
+	}
+}
+
 func TestReconciliationBindingMustMatchPlannedPrivateHead(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -37,7 +144,10 @@ func TestReconciliationBindingMustMatchPlannedPrivateHead(t *testing.T) {
 	reconcileGit(t, work, "push", gateDir, privateHead+":refs/no-mistakes/test/private")
 	archive := "refs/tags/no-mistakes-abandoned/feature/reconcile/" + privateHead
 	reconcileGit(t, gateDir, "update-ref", archive, privateHead)
-	if err := RecordReconciliationBinding(ctx, gateDir, "feature/reconcile", submittedHead, "proof~1", privateHead); err != nil {
+	if _, err := ApplyProofBranchReconciliation(ctx, gateDir, StaleBranchPlan{
+		Reconcile: true, Branch: "feature/reconcile", BranchRef: "refs/no-mistakes/test/private",
+		PreviousHead: privateHead, ArchiveTag: archive,
+	}, submittedHead, "proof~1"); err != nil {
 		t.Fatal(err)
 	}
 

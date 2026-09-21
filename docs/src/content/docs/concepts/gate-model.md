@@ -136,7 +136,10 @@ retry can still resolve the branch. AXI reconciles before its ordinary submissio
 push, including when `--launch-nonce` requests a receipt, and restores an
 archived ref after a failed submission if no intervening ref has appeared.
 Proof-mode reconciliation and the push use the same immutable submitted head;
-the archived previous head is carried into admission so the new run retains
+the archive, candidate/nonce binding, and private branch retirement commit in
+one Git ref transaction with expected-ref checks. A failed transaction leaves
+those refs unchanged; a retry after retirement can resolve the durable binding.
+The bound previous head is carried into admission so the new run retains
 rewrite provenance. Neither path forces the private mirror.
 
 Custody recovery can legitimately leave the private branch at the head the

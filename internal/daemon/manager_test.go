@@ -322,7 +322,10 @@ func TestProofLaunchReconciliationBinding(t *testing.T) {
 						claim = submitted
 						gitCmd(t, gateDir, "update-ref", "refs/tags/no-mistakes-abandoned/main/"+submitted, submitted)
 					}
-					if err := gate.RecordReconciliationBinding(context.Background(), gateDir, branch, candidate, nonce, previous); err != nil {
+					if _, err := gate.ApplyProofBranchReconciliation(context.Background(), gateDir, gate.StaleBranchPlan{
+						Reconcile: true, Branch: branch, BranchRef: "refs/no-mistakes/test/private",
+						PreviousHead: previous, ArchiveTag: "refs/tags/no-mistakes-abandoned/" + branch + "/" + previous,
+					}, candidate, nonce); err != nil {
 						t.Fatal(err)
 					}
 				}
@@ -406,7 +409,10 @@ func TestPushReceivedUsesBoundReconciliationAfterInterveningAncestor(t *testing.
 	gitCmd(t, repo.WorkingPath, "push", "gate", privateHead+":refs/no-mistakes/test/private")
 	archive := "refs/tags/no-mistakes-abandoned/main/" + privateHead
 	gitCmd(t, p.RepoDir(repo.ID), "update-ref", archive, privateHead)
-	if err := gate.RecordReconciliationBinding(context.Background(), p.RepoDir(repo.ID), "main", submitted, "proof~1", privateHead); err != nil {
+	if _, err := gate.ApplyProofBranchReconciliation(context.Background(), p.RepoDir(repo.ID), gate.StaleBranchPlan{
+		Reconcile: true, Branch: "main", BranchRef: "refs/no-mistakes/test/private",
+		PreviousHead: privateHead, ArchiveTag: archive,
+	}, submitted, "proof~1"); err != nil {
 		t.Fatal(err)
 	}
 
