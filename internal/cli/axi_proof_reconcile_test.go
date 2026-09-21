@@ -72,7 +72,10 @@ func TestTriggerProofRunRejectsStaleBindingBeforeConcurrentRemoval(t *testing.T)
 	cliGit(t, work, "push", gateDir, privateHead+":refs/no-mistakes/test/private")
 	privateArchive := "refs/tags/no-mistakes-abandoned/" + branch + "/" + privateHead
 	cliGit(t, gateDir, "update-ref", privateArchive, privateHead)
-	if err := gate.RecordReconciliationBinding(ctx, gateDir, branch, candidate, nonce, privateHead); err != nil {
+	if _, err := gate.ApplyProofBranchReconciliation(ctx, gateDir, gate.StaleBranchPlan{
+		Reconcile: true, Branch: branch, BranchRef: "refs/no-mistakes/test/private",
+		PreviousHead: privateHead, ArchiveTag: privateArchive,
+	}, candidate, nonce); err != nil {
 		t.Fatal(err)
 	}
 
@@ -153,7 +156,7 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 		name, mode, hook, wantError                string
 		launchNonce                                string
 		omitPrivate, fastForward, moveHead, active bool
-		delayReceipt, retryAfterError, oldDaemon    bool
+		delayReceipt, retryAfterError, oldDaemon   bool
 	}{
 		{name: "ordinary rewritten", mode: "ordinary"},
 		{name: "proof rewritten", mode: "proof"},

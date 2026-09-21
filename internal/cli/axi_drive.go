@@ -707,7 +707,7 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 	}
 	reconciliation := gate.StaleBranchReconciliation{}
 	if plan.Reconcile {
-		reconciliation, err = gate.ApplyStaleBranchReconciliation(ctx, gateDir, plan)
+		reconciliation, err = gate.ApplyProofBranchReconciliation(ctx, gateDir, plan, headSHA, launchNonce)
 		if err != nil {
 			return nil, fmt.Errorf("apply private mirror reconciliation for %q: %w", branch, err)
 		}
@@ -721,17 +721,6 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 			if reconciledPreviousHead != plan.PreviousHead {
 				return nil, fmt.Errorf("private mirror reconciliation provenance does not match the planned head")
 			}
-		}
-	}
-	if reconciledPreviousHead != "" {
-		if err := gate.RecordReconciliationBinding(ctx, gateDir, branch, headSHA, launchNonce, reconciledPreviousHead); err != nil {
-			restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), triggerWaitTimeout)
-			restoreErr := gate.RestoreReconciledBranch(restoreCtx, gateDir, branch, reconciliation)
-			cancel()
-			if restoreErr != nil {
-				return nil, fmt.Errorf("record reconciliation binding: %v; restore reconciled branch: %w", err, restoreErr)
-			}
-			return nil, fmt.Errorf("record reconciliation binding: %w", err)
 		}
 	}
 	if opt := formatReconciledPreviousHeadPushOption(reconciledPreviousHead); opt != "" {

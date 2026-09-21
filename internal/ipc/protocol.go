@@ -10,25 +10,25 @@ import (
 
 // JSON-RPC 2.0 method names.
 const (
-	MethodPushReceived       = "push_received"
-	MethodResolvePiProfile   = "resolve_pi_profile"
+	MethodPushReceived             = "push_received"
+	MethodResolvePiProfile         = "resolve_pi_profile"
 	MethodProbeOmitIntent          = "probe_omit_intent"
 	MethodProbeProofReconciliation = "probe_proof_reconciliation"
 	MethodStartFreshRun            = "start_fresh_run"
-	MethodClaimLaunchReceipt = "claim_launch_receipt"
-	MethodGetRun             = "get_run"
-	MethodGetStepDiff        = "get_step_diff"
-	MethodGetRuns            = "get_runs"
-	MethodGetRunsForHead     = "get_runs_for_head"
-	MethodGetActiveRun       = "get_active_run"
-	MethodRerun              = "rerun"
-	MethodSubscribe          = "subscribe"
-	MethodRespond            = "respond"
-	MethodCancelRun          = "cancel_run"
-	MethodGateContext        = "gate_context"
-	MethodAdmitPush          = "admit_push"
-	MethodHealth             = "health"
-	MethodShutdown           = "shutdown"
+	MethodClaimLaunchReceipt       = "claim_launch_receipt"
+	MethodGetRun                   = "get_run"
+	MethodGetStepDiff              = "get_step_diff"
+	MethodGetRuns                  = "get_runs"
+	MethodGetRunsForHead           = "get_runs_for_head"
+	MethodGetActiveRun             = "get_active_run"
+	MethodRerun                    = "rerun"
+	MethodSubscribe                = "subscribe"
+	MethodRespond                  = "respond"
+	MethodCancelRun                = "cancel_run"
+	MethodGateContext              = "gate_context"
+	MethodAdmitPush                = "admit_push"
+	MethodHealth                   = "health"
+	MethodShutdown                 = "shutdown"
 )
 
 // JSON-RPC 2.0 error codes.
@@ -91,7 +91,8 @@ type PushReceivedParams struct {
 	// ReconciledPreviousHead is the head a reconciled private mirror branch
 	// carried before the pusher archived and removed it. The push re-creates the
 	// branch, so the hook reports no previous head of its own. It is a claim the
-	// daemon accepts only against the gate's own archive tag.
+	// daemon accepts only after verifying the gate's archive and, for a
+	// nonce-bound launch, its candidate/nonce reconciliation binding.
 	ReconciledPreviousHead string `json:"reconciled_previous_head,omitempty"`
 }
 
@@ -101,16 +102,16 @@ type PushReceivedParams struct {
 type StartFreshRunParams struct {
 	PiProfile *agentcfg.PiProfile `json:"pi_profile,omitempty"`
 
-	RepoID               string           `json:"repo_id"`
-	Branch               string           `json:"branch"`
-	HeadSHA              string           `json:"head_sha"`
-	SkipSteps            []types.StepName `json:"skip_steps,omitempty"`
-	Intent               string           `json:"intent"`
-	LaunchNonce          string           `json:"launch_nonce"`
-	ValidationGeneration string           `json:"validation_generation"`
-	PRBaseBranch             string           `json:"pr_base_branch,omitempty"`
-	OmitIntent               bool             `json:"omit_intent,omitempty"`
-	ReconciledPreviousHead   string           `json:"reconciled_previous_head,omitempty"`
+	RepoID                 string           `json:"repo_id"`
+	Branch                 string           `json:"branch"`
+	HeadSHA                string           `json:"head_sha"`
+	SkipSteps              []types.StepName `json:"skip_steps,omitempty"`
+	Intent                 string           `json:"intent"`
+	LaunchNonce            string           `json:"launch_nonce"`
+	ValidationGeneration   string           `json:"validation_generation"`
+	PRBaseBranch           string           `json:"pr_base_branch,omitempty"`
+	OmitIntent             bool             `json:"omit_intent,omitempty"`
+	ReconciledPreviousHead string           `json:"reconciled_previous_head,omitempty"`
 }
 
 // ProbeOmitIntentParams is the empty request for MethodProbeOmitIntent.

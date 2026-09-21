@@ -155,6 +155,17 @@ func planStaleBranchReconciliation(ctx context.Context, gateDir, workDir, branch
 // branch ref. It revalidates that the branch still points at the exact head the
 // plan proved, so a private head that appeared after planning is never deleted.
 func ApplyStaleBranchReconciliation(ctx context.Context, gateDir string, plan StaleBranchPlan) (StaleBranchReconciliation, error) {
+	return applyStaleBranchReconciliation(ctx, gateDir, plan, "")
+}
+
+func ApplyProofBranchReconciliation(ctx context.Context, gateDir string, plan StaleBranchPlan, submittedHead, launchNonce string) (StaleBranchReconciliation, error) {
+	if submittedHead == "" || launchNonce == "" {
+		return StaleBranchReconciliation{}, fmt.Errorf("proof reconciliation requires submitted head and launch nonce")
+	}
+	return applyStaleBranchReconciliation(ctx, gateDir, plan, reconciliationBindingRef(plan.Branch, submittedHead, launchNonce))
+}
+
+func applyStaleBranchReconciliation(ctx context.Context, gateDir string, plan StaleBranchPlan, bindingRef string) (StaleBranchReconciliation, error) {
 	var result StaleBranchReconciliation
 	if !plan.Reconcile {
 		return result, nil
@@ -190,13 +201,36 @@ func ApplyStaleBranchReconciliation(ctx context.Context, gateDir string, plan St
 	if archived && archivedHead != plan.PreviousHead {
 		return result, fmt.Errorf("private mirror archive tag %s already points at %s, not %s", plan.ArchiveTag, archivedHead, plan.PreviousHead)
 	}
-	if !archived {
+	if bindingRef == "" && !archived {
 		if _, err := git.Run(ctx, gateDir, "update-ref", "--no-deref", plan.ArchiveTag, plan.PreviousHead, strings.Repeat("0", len(plan.PreviousHead))); err != nil {
 			return result, fmt.Errorf("archive stale private mirror head %s at %s: %w", plan.PreviousHead, plan.ArchiveTag, err)
 		}
+		archived = true
 	}
-	if _, err := git.Run(ctx, gateDir, "update-ref", "--no-deref", "-d", plan.BranchRef, plan.PreviousHead); err != nil {
-		return result, fmt.Errorf("delete archived stale private mirror ref %s at %s: %w", plan.BranchRef, plan.PreviousHead, err)
+	var transaction strings.Builder
+	transaction.WriteString("start\n")
+	if archived {
+		fmt.Fprintf(&transaction, "verify %s %s\n", plan.ArchiveTag, plan.PreviousHead)
+	} else {
+		fmt.Fprintf(&transaction, "create %s %s\n", plan.ArchiveTag, plan.PreviousHead)
+	}
+	if bindingRef != "" {
+		boundHead, bound, err := git.DirectRefTarget(ctx, gateDir, bindingRef)
+		if err != nil {
+			return result, fmt.Errorf("inspect reconciliation binding %s: %w", bindingRef, err)
+		}
+		if bound {
+			if boundHead != plan.PreviousHead {
+				return result, fmt.Errorf("reconciliation binding %s points at %s, not %s", bindingRef, boundHead, plan.PreviousHead)
+			}
+			fmt.Fprintf(&transaction, "verify %s %s\n", bindingRef, plan.PreviousHead)
+		} else {
+			fmt.Fprintf(&transaction, "create %s %s\n", bindingRef, plan.PreviousHead)
+		}
+	}
+	fmt.Fprintf(&transaction, "delete %s %s\nprepare\ncommit\n", plan.BranchRef, plan.PreviousHead)
+	if _, err := git.RunWithInput(ctx, gateDir, transaction.String(), "update-ref", "--no-deref", "--stdin"); err != nil {
+		return result, fmt.Errorf("commit private mirror reconciliation for %s: %w", plan.BranchRef, err)
 	}
 	return StaleBranchReconciliation{Reconciled: true, PreviousHead: plan.PreviousHead, ArchivedTag: plan.ArchiveTag}, nil
 }
@@ -243,27 +277,6 @@ func ArchivedHeadRecorded(ctx context.Context, gateDir, branch, head string) boo
 	}
 	objectType, err := git.Run(ctx, gateDir, "cat-file", "-t", head)
 	return err == nil && objectType == "commit"
-}
-
-func RecordReconciliationBinding(ctx context.Context, gateDir, branch, submittedHead, launchNonce, previousHead string) error {
-	if !ArchivedHeadRecorded(ctx, gateDir, branch, previousHead) {
-		return fmt.Errorf("reconciliation binding: previous head is not archived")
-	}
-	ref := reconciliationBindingRef(branch, submittedHead, launchNonce)
-	existing, exists, err := git.DirectRefTarget(ctx, gateDir, ref)
-	if err != nil {
-		return fmt.Errorf("inspect reconciliation binding %s: %w", ref, err)
-	}
-	if exists {
-		if existing != previousHead {
-			return fmt.Errorf("reconciliation binding %s points at %s, not %s", ref, existing, previousHead)
-		}
-		return nil
-	}
-	if _, err := git.Run(ctx, gateDir, "update-ref", "--no-deref", ref, previousHead, strings.Repeat("0", len(previousHead))); err != nil {
-		return fmt.Errorf("record reconciliation binding %s: %w", ref, err)
-	}
-	return nil
 }
 
 func ReconciledPreviousHead(ctx context.Context, gateDir, branch, submittedHead, launchNonce string) string {
