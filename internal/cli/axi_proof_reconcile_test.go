@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +20,129 @@ import (
 	"github.com/kunchenguid/no-mistakes/internal/paths"
 	"github.com/kunchenguid/no-mistakes/internal/types"
 )
+
+func TestTriggerProofRunRejectsStaleBindingBeforeConcurrentRemoval(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	work := t.TempDir()
+	p := paths.WithRoot(makeSocketSafeTempDir(t))
+	t.Setenv("NM_HOME", p.Root())
+	if err := p.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.Open(p.DB())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	cliGit(t, work, "init", "-b", "main")
+	cliGit(t, work, "config", "user.name", "Test")
+	cliGit(t, work, "config", "user.email", "test@example.com")
+	cliGit(t, work, "commit", "--allow-empty", "-m", "base")
+	base := cliGit(t, work, "rev-parse", "HEAD")
+	writeCommit := func(name, content string) string {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(work, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cliGit(t, work, "add", name)
+		cliGit(t, work, "commit", "-m", name)
+		return cliGit(t, work, "rev-parse", "HEAD")
+	}
+	privateHead := writeCommit("private.txt", "private\n")
+	cliGit(t, work, "reset", "--hard", base)
+	cliGit(t, work, "commit", "--allow-empty", "-m", "planned")
+	plannedHead := cliGit(t, work, "rev-parse", "HEAD")
+	cliGit(t, work, "reset", "--hard", base)
+	cliGit(t, work, "commit", "--allow-empty", "-m", "planned-rewritten")
+	candidate := writeCommit("candidate.txt", "candidate\n")
+	branch := "feature/reconcile"
+	nonce := "proof~1"
+
+	repo, err := d.InsertRepo(work, "https://example.com/repo.git", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateDir := p.RepoDir(repo.ID)
+	cliGit(t, "", "init", "--bare", gateDir)
+	cliGit(t, gateDir, "config", "receive.advertisePushOptions", "true")
+	cliGit(t, work, "remote", "add", gate.RemoteName, gateDir)
+	cliGit(t, work, "push", gateDir, plannedHead+":refs/heads/"+branch)
+	cliGit(t, work, "push", gateDir, privateHead+":refs/no-mistakes/test/private")
+	privateArchive := "refs/tags/no-mistakes-abandoned/" + branch + "/" + privateHead
+	cliGit(t, gateDir, "update-ref", privateArchive, privateHead)
+	if err := gate.RecordReconciliationBinding(ctx, gateDir, branch, candidate, nonce, privateHead); err != nil {
+		t.Fatal(err)
+	}
+
+	postReceiveMarker := filepath.Join(gateDir, "proof-pushed")
+	postReceive := "#!/bin/sh\n: > '" + filepath.ToSlash(postReceiveMarker) + "'\n"
+	if err := os.WriteFile(filepath.Join(gateDir, "hooks", "post-receive"), []byte(postReceive), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := ipc.NewServer()
+	srv.Handle(ipc.MethodGetActiveRun, func(context.Context, json.RawMessage) (interface{}, error) {
+		return &ipc.GetActiveRunResult{}, nil
+	})
+	var probeCalls atomic.Int32
+	srv.Handle(ipc.MethodProbeProofReconciliation, func(context.Context, json.RawMessage) (interface{}, error) {
+		probeCalls.Add(1)
+		cmd := exec.Command("git", "-C", gateDir, "update-ref", "-d", "refs/heads/"+branch, plannedHead)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return nil, fmt.Errorf("remove planned head during capability probe: %w: %s", err, output)
+		}
+		return &ipc.ProbeProofReconciliationResult{OK: true}, nil
+	})
+	srv.Handle(ipc.MethodClaimLaunchReceipt, func(context.Context, json.RawMessage) (interface{}, error) {
+		return &ipc.ClaimLaunchReceiptResult{Receipt: &ipc.LaunchReceipt{
+			RunID: "unexpected-run", LaunchNonce: nonce, ValidationGeneration: "generation", SubmittedHeadSHA: candidate,
+		}}, nil
+	})
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve(p.Socket()) }()
+	t.Cleanup(func() { srv.Close(); <-done })
+	var client *ipc.Client
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		client, err = ipc.Dial(p.Socket())
+		if err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	defer client.Close()
+
+	chdir(t, work)
+	env := &axiEnv{p: p, d: d, repo: repo, cfg: config.DefaultGlobalConfig(), client: client}
+	receipt, err := triggerProofRun(ctx, env, branch, candidate, nil, "validate reconstructed work", "", false, nonce, "generation")
+	if err == nil || !strings.Contains(err.Error(), "provenance does not match the planned head") || receipt != nil {
+		t.Fatalf("want stale-provenance refusal without receipt, got receipt=%+v err=%v", receipt, err)
+	}
+	if calls := probeCalls.Load(); calls != 0 {
+		t.Fatalf("stale binding reached capability probe and concurrent removal: calls=%d", calls)
+	}
+	if got := cliGit(t, gateDir, "rev-parse", "refs/heads/"+branch); got != plannedHead {
+		t.Fatalf("refusal moved planned private head: got %s want %s", got, plannedHead)
+	}
+	plannedArchive := "refs/tags/no-mistakes-abandoned/" + branch + "/" + plannedHead
+	if got := cliGit(t, gateDir, "for-each-ref", "--format=%(refname)", plannedArchive); got != "" {
+		t.Fatalf("refusal archived planned private head: %s", got)
+	}
+	if _, err := os.Stat(postReceiveMarker); !os.IsNotExist(err) {
+		t.Fatalf("refused stale binding reached push: %v", err)
+	}
+	if got := cliGit(t, work, "rev-parse", "HEAD"); got != candidate {
+		t.Fatalf("candidate changed: got %s want %s", got, candidate)
+	}
+	if got := cliGit(t, work, "status", "--porcelain"); got != "" {
+		t.Fatalf("worktree changed: %s", got)
+	}
+}
 
 // Model the operator sequence, not just two divergent refs: publication,
 // cancellation with an unpublished head, archive-backed keep-local recovery,
