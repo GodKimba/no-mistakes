@@ -34,6 +34,7 @@ func TestTriggerAfterArchiveRecovery(t *testing.T) {
 		{name: "proof rewritten", mode: "proof"},
 		{name: "proof ref-safe nonce", mode: "proof", launchNonce: "proof~1"},
 		{name: "proof old daemon", mode: "proof", oldDaemon: true, wantError: "too old"},
+		{name: "proof old daemon without reconciliation", mode: "proof", oldDaemon: true, fastForward: true},
 		{name: "proof delayed registration", mode: "proof", delayReceipt: true},
 		{name: "proof retry after registration error", mode: "proof", retryAfterError: true},
 		{name: "proof fast forward", mode: "proof", fastForward: true},
