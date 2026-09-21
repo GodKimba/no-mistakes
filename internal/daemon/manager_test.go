@@ -290,6 +290,105 @@ func TestProofLaunchReceiptPushCrashWindowConcurrentClaimsAndImmutableReplay(t *
 	logLaunchEvidence(t, "persisted-base", *stored.PRBaseBranch)
 }
 
+func TestProofLaunchReconciliationBinding(t *testing.T) {
+	for _, entry := range []string{"fresh", "push"} {
+		for _, scenario := range []string{"unarchived", "archived-unbound", "wrong-branch", "wrong-candidate", "wrong-nonce", "wrong-previous-head", "matching", "binding-only", "ordinary"} {
+			t.Run(entry+"/"+scenario, func(t *testing.T) {
+				step := &mockPassStep{name: types.StepReview}
+				p, d := startTestDaemonWithSteps(t, func() []pipeline.Step { return []pipeline.Step{step} })
+				repo, submitted := setupTestGitRepo(t, p, d, "binding-repo")
+				gitCmd(t, repo.WorkingPath, "checkout", "-b", "private")
+				gitCmd(t, repo.WorkingPath, "commit", "--allow-empty", "-m", "private")
+				previous := gitOutput(t, repo.WorkingPath, "rev-parse", "HEAD")
+				gitCmd(t, repo.WorkingPath, "push", "gate", previous+":refs/no-mistakes/test/private")
+				gitCmd(t, repo.WorkingPath, "checkout", "main")
+				gateDir := p.RepoDir(repo.ID)
+				archive := "refs/tags/no-mistakes-abandoned/main/" + previous
+				if scenario != "unarchived" {
+					gitCmd(t, gateDir, "update-ref", archive, previous)
+				}
+				claim := previous
+				if scenario != "unarchived" && scenario != "archived-unbound" && scenario != "ordinary" {
+					branch, candidate, nonce := "main", submitted, "binding-nonce"
+					switch scenario {
+					case "wrong-branch":
+						branch = "other"
+						gitCmd(t, gateDir, "update-ref", "refs/tags/no-mistakes-abandoned/other/"+previous, previous)
+					case "wrong-candidate":
+						candidate = previous
+					case "wrong-nonce":
+						nonce = "other-nonce"
+					case "wrong-previous-head":
+						claim = submitted
+						gitCmd(t, gateDir, "update-ref", "refs/tags/no-mistakes-abandoned/main/"+submitted, submitted)
+					}
+					if err := gate.RecordReconciliationBinding(context.Background(), gateDir, branch, candidate, nonce, previous); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if scenario == "binding-only" || scenario == "ordinary" {
+					claim = ""
+				}
+				client, err := ipc.Dial(p.Socket())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer client.Close()
+				call := func() (string, error) {
+					if entry == "fresh" {
+						var result ipc.StartFreshRunResult
+						err := client.Call(ipc.MethodStartFreshRun, &ipc.StartFreshRunParams{
+							RepoID: repo.ID, Branch: "main", HeadSHA: submitted,
+							Intent: "binding regression", LaunchNonce: "binding-nonce", ValidationGeneration: "generation",
+							ReconciledPreviousHead: claim,
+						}, &result)
+						return result.Receipt.RunID, err
+					}
+					var result ipc.PushReceivedResult
+					err := client.Call(ipc.MethodPushReceived, &ipc.PushReceivedParams{
+						Gate: gateDir, Ref: "refs/heads/main", Old: submitted, New: submitted,
+						Intent: "binding regression", LaunchNonce: "binding-nonce", ValidationGeneration: "generation",
+						ReconciledPreviousHead: claim,
+					}, &result)
+					return result.RunID, err
+				}
+				runID, err := call()
+				valid := scenario == "matching" || scenario == "binding-only" || scenario == "ordinary"
+				if !valid {
+					if err == nil || !strings.Contains(err.Error(), "reconciliation provenance") {
+						t.Fatalf("admission error = %v, want provenance rejection", err)
+					}
+					run, lookupErr := d.GetRunByLaunchNonce(repo.ID, "main", "binding-nonce")
+					if lookupErr != nil || run != nil {
+						t.Fatalf("rejected launch persisted run: %#v, %v", run, lookupErr)
+					}
+				} else {
+					if err != nil {
+						t.Fatal(err)
+					}
+					wantBase := previous
+					if scenario == "ordinary" {
+						wantBase = submitted
+					}
+					run, err := d.GetRun(runID)
+					if err != nil || run == nil || run.BaseSHA != wantBase || run.SubmittedHeadSHA == nil || *run.SubmittedHeadSHA != submitted {
+						t.Fatalf("admitted run = %#v, err=%v, want base %s", run, err, wantBase)
+					}
+					if replayID, err := call(); err != nil || replayID != runID {
+						t.Fatalf("replay = %q, %v, want %s", replayID, err, runID)
+					}
+				}
+				if got := gitOutput(t, gateDir, "rev-parse", "refs/heads/main"); got != submitted {
+					t.Fatalf("candidate moved to %s", got)
+				}
+				if scenario != "unarchived" && !gate.ArchivedHeadRecorded(context.Background(), gateDir, "main", previous) {
+					t.Fatal("previous head archive lost")
+				}
+			})
+		}
+	}
+}
+
 func TestPushReceivedUsesBoundReconciliationAfterInterveningAncestor(t *testing.T) {
 	step := &mockPassStep{name: types.StepReview}
 	p, d := startTestDaemonWithSteps(t, func() []pipeline.Step { return []pipeline.Step{step} })
