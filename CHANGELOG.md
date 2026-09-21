@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.80.2](https://github.com/kunchenguid/no-mistakes/compare/v1.80.1...v1.80.2) (2026-09-21)
+
+
+### Bug Fixes
+
+* **ci:** pin require-no-mistakes at v1.80.1 and restore synchronize ([#1145](https://github.com/kunchenguid/no-mistakes/issues/1145)) ([90d1d0f](https://github.com/kunchenguid/no-mistakes/commit/90d1d0ffa05dc3237d70e1bd1e46e139ce24b5f3))
+
 ## [1.80.1](https://github.com/kunchenguid/no-mistakes/compare/v1.80.0...v1.80.1) (2026-09-20)
 
 
