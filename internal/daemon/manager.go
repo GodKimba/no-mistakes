@@ -778,12 +778,16 @@ func (m *RunManager) HandlePushReceived(ctx context.Context, params *ipc.PushRec
 
 	branch := branchFromRef(params.Ref)
 	baseSHA := params.Old
-	// A push that re-creates a branch the pusher reconciled reports no previous
-	// head, which would record a zero base and make a deliberate history
-	// rewrite look like an ordinary push to the rebase step. Restore the head
-	// the branch actually carried, but only when the gate's own archive tag
-	// records it: the claim itself arrives over the push and is not evidence.
-	if git.IsZeroSHA(baseSHA) && gate.ArchivedHeadRecorded(ctx, m.paths.RepoDir(repo.ID), branch, params.ReconciledPreviousHead) {
+	gateDir := m.paths.RepoDir(repo.ID)
+	if params.LaunchNonce != "" {
+		boundPreviousHead, err := resolveLaunchReconciliation(ctx, gateDir, branch, params.New, params.LaunchNonce, params.ReconciledPreviousHead)
+		if err != nil {
+			return "", err
+		}
+		if boundPreviousHead != "" {
+			baseSHA = boundPreviousHead
+		}
+	} else if git.IsZeroSHA(baseSHA) && gate.ArchivedHeadRecorded(ctx, gateDir, branch, params.ReconciledPreviousHead) {
 		baseSHA = strings.TrimSpace(params.ReconciledPreviousHead)
 	}
 	if params.LaunchNonce != "" {
@@ -806,7 +810,24 @@ func (m *RunManager) HandleStartFreshRun(ctx context.Context, params *ipc.StartF
 	if repo == nil {
 		return ipc.LaunchReceipt{}, fmt.Errorf("unknown repo %s", params.RepoID)
 	}
-	return m.startFreshLaunch(ctx, repo, params.Branch, params.HeadSHA, "", m.paths.RepoDir(repo.ID), params.SkipSteps, params.Intent, params.LaunchNonce, params.ValidationGeneration, params.PRBaseBranch, params.OmitIntent, "fresh", params.PiProfile)
+	baseSHA, err := resolveLaunchReconciliation(ctx, m.paths.RepoDir(repo.ID), params.Branch, params.HeadSHA, params.LaunchNonce, params.ReconciledPreviousHead)
+	if err != nil {
+		return ipc.LaunchReceipt{}, err
+	}
+	return m.startFreshLaunch(ctx, repo, params.Branch, params.HeadSHA, baseSHA, m.paths.RepoDir(repo.ID), params.SkipSteps, params.Intent, params.LaunchNonce, params.ValidationGeneration, params.PRBaseBranch, params.OmitIntent, "fresh", params.PiProfile)
+}
+
+func resolveLaunchReconciliation(ctx context.Context, gateDir, branch, headSHA, launchNonce, claimedPreviousHead string) (string, error) {
+	boundPreviousHead := gate.ReconciledPreviousHead(ctx, gateDir, branch, headSHA, launchNonce)
+	if claimedPreviousHead != "" {
+		if boundPreviousHead == "" {
+			return "", fmt.Errorf("reconciliation provenance for launch nonce %q is unavailable", launchNonce)
+		}
+		if strings.TrimSpace(claimedPreviousHead) != boundPreviousHead {
+			return "", fmt.Errorf("reconciliation provenance for launch nonce %q does not match the gate binding", launchNonce)
+		}
+	}
+	return boundPreviousHead, nil
 }
 
 // startFreshLaunch owns proof identity under the branch lock. A nonce may

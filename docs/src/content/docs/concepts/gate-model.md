@@ -133,8 +133,24 @@ Publication plans reconciliation before pushing and applies it only after
 verifying the upstream head. If mirror settlement then fails or is cancelled,
 it restores the archived branch when no intervening ref has appeared, so a
 retry can still resolve the branch. AXI reconciles before its ordinary submission
-push and restores an archived ref after a failed submission if no intervening
-ref has appeared. Neither path forces the private mirror.
+push, including when `--launch-nonce` requests a receipt, and restores an
+archived ref after a failed submission if no intervening ref has appeared.
+Proof-mode reconciliation and the push use the same immutable submitted head;
+the archive and branch/submitted-head/nonce binding are created or verified
+while the private branch retires in one Git ref transaction with expected-ref
+checks. A conflicting binding refuses before mutation, a failed transaction
+leaves those refs unchanged, and a retry after retirement can resolve the
+durable binding.
+The bound previous head is carried into admission so the new run retains
+rewrite provenance. Neither path forces the private mirror.
+
+Custody recovery can legitimately leave the private branch at the head the
+operator kept. Reconstructing a candidate on the last published history may
+therefore need this reconciliation even when branch synchronization reports
+`run_pipeline`. That guidance describes the relation to the publication, not
+a waiver of private-content preservation: an unproven reconstruction still
+refuses and names the at-risk commits. Returning custody or having a recovery
+archive does not grant a fresh submission the Decision 41-A exception.
 
 ### Daemon
 

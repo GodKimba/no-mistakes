@@ -687,8 +687,53 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 	if state := freshRunBranchOwnershipState(ctx, env); state != nil {
 		return nil, &branchOwnershipError{state: *state}
 	}
+	// Proof mode changes launch identity, not private-mirror admission. Use
+	// the same preservation proof as an ordinary fresh submission, bound to
+	// the nonce's immutable head (never a refreshed HEAD or an ownership
+	// exception). Recovery may have legitimately kept a different history.
+	gateDir := env.p.RepoDir(env.repo.ID)
+	plan, err := gate.PlanStaleBranchReconciliation(ctx, gateDir, ".", branch, headSHA, "")
+	if err != nil {
+		return nil, fmt.Errorf("prepare private mirror for %q: %w", branch, err)
+	}
+	reconciledPreviousHead := gate.ReconciledPreviousHead(ctx, gateDir, branch, headSHA, launchNonce)
+	if plan.Reconcile && reconciledPreviousHead != "" && reconciledPreviousHead != plan.PreviousHead {
+		return nil, fmt.Errorf("private mirror reconciliation provenance does not match the planned head")
+	}
+	if plan.Reconcile || reconciledPreviousHead != "" {
+		if err := probeDaemonProofReconciliation(env.client); err != nil {
+			return nil, err
+		}
+	}
+	reconciliation := gate.StaleBranchReconciliation{}
+	if plan.Reconcile {
+		reconciliation, err = gate.ApplyProofBranchReconciliation(ctx, gateDir, plan, headSHA, launchNonce)
+		if err != nil {
+			return nil, fmt.Errorf("apply private mirror reconciliation for %q: %w", branch, err)
+		}
+		if reconciliation.PreviousHead != "" {
+			reconciledPreviousHead = reconciliation.PreviousHead
+		} else {
+			reconciledPreviousHead = gate.ReconciledPreviousHead(ctx, gateDir, branch, headSHA, launchNonce)
+			if reconciledPreviousHead == "" {
+				return nil, fmt.Errorf("private mirror reconciliation was superseded without durable provenance")
+			}
+			if reconciledPreviousHead != plan.PreviousHead {
+				return nil, fmt.Errorf("private mirror reconciliation provenance does not match the planned head")
+			}
+		}
+	}
+	if opt := formatReconciledPreviousHeadPushOption(reconciledPreviousHead); opt != "" {
+		pushOptions = append(pushOptions, opt)
+	}
 	pushErr := git.PushCommitWithOptionsSkippingHooks(ctx, ".", gate.RemoteName, headSHA, "refs/heads/"+branch, "", false, pushOptions)
 	if pushErr != nil {
+		restoreCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), triggerWaitTimeout)
+		restoreErr := gate.RestoreReconciledBranch(restoreCtx, env.p.RepoDir(env.repo.ID), branch, reconciliation)
+		cancel()
+		if restoreErr != nil {
+			return nil, fmt.Errorf("push %q to gate: %v; restore reconciled branch: %w", branch, pushErr, restoreErr)
+		}
 		if state := freshRunBranchOwnershipState(ctx, env); state != nil {
 			return nil, &branchOwnershipError{state: *state}
 		}
@@ -702,7 +747,8 @@ func triggerProofRun(ctx context.Context, env *axiEnv, branch, headSHA string, s
 	var result ipc.StartFreshRunResult
 	if err := env.client.Call(ipc.MethodStartFreshRun, &ipc.StartFreshRunParams{
 		RepoID: env.repo.ID, Branch: branch, HeadSHA: headSHA, SkipSteps: skipSteps,
-		Intent: intent, LaunchNonce: launchNonce, ValidationGeneration: validationGeneration, PRBaseBranch: baseBranch, OmitIntent: omitIntent, PiProfile: profile,
+		Intent: intent, LaunchNonce: launchNonce, ValidationGeneration: validationGeneration, PRBaseBranch: baseBranch, OmitIntent: omitIntent,
+		ReconciledPreviousHead: reconciledPreviousHead, PiProfile: profile,
 	}, &result); err != nil {
 		return nil, fmt.Errorf("start fresh run: %w", err)
 	}
