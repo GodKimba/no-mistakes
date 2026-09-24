@@ -431,7 +431,23 @@ func shortObjectID(value string) string {
 // pushed head, then prior pipeline runs for the same repo and branch, and
 // finally falls back to the worktree's remote-tracking ref.
 func lastKnownBranchTip(ctx context.Context, sctx *pipeline.StepContext, branch string, fork bool) string {
-	if sctx.Run != nil && sctx.Run.LastPushedSHA != nil && strings.TrimSpace(*sctx.Run.LastPushedSHA) != "" {
+	// Publication updates the durable run row after the remote and mirror settle,
+	// but the executor's in-memory run only advances HeadSHA. Reload the current
+	// run first so a later reviewed rewrite leases against the same LastPushedSHA
+	// that qualified its mirror reconciliation, rather than an older in-memory
+	// generation.
+	if sctx.DB != nil && sctx.Run != nil {
+		if run, err := sctx.DB.GetRun(sctx.Run.ID); err == nil {
+			if run != nil && run.LastPushedSHA != nil && strings.TrimSpace(*run.LastPushedSHA) != "" {
+				return strings.TrimSpace(*run.LastPushedSHA)
+			}
+		} else if sctx.Run.LastPushedSHA != nil && strings.TrimSpace(*sctx.Run.LastPushedSHA) != "" {
+			// Preserve the existing best-effort fallback only when the durable
+			// lookup itself fails; a successful lookup with no publication must
+			// not be replaced by a stale in-memory value.
+			return strings.TrimSpace(*sctx.Run.LastPushedSHA)
+		}
+	} else if sctx.Run != nil && sctx.Run.LastPushedSHA != nil && strings.TrimSpace(*sctx.Run.LastPushedSHA) != "" {
 		return strings.TrimSpace(*sctx.Run.LastPushedSHA)
 	}
 	if sctx.DB != nil && sctx.Repo != nil {

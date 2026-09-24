@@ -66,6 +66,10 @@ func TestPushStep_RepublishesReviewedRebaseOverRunsOwnPublishedHead(t *testing.T
 					t.Fatalf("first publication left %s at %s, want %s", dir, got, published)
 				}
 			}
+			// Model an executor snapshot that still remembers an older generation:
+			// publication advances LastPushedSHA durably, while the in-memory run may
+			// survive across the later CI repair and Review cycle.
+			sctx.Run.LastPushedSHA = &submitted
 
 			// The base branch takes the same migration number meanwhile.
 			gitCmd(t, dir, "checkout", "-q", "main")
