@@ -1,5 +1,47 @@
 # Changelog
 
+## [1.83.0](https://github.com/kunchenguid/no-mistakes/compare/v1.82.0...v1.83.0) (2026-09-24)
+
+
+### Features
+
+* **config:** per-repository machine-local commit and title overrides ([#1179](https://github.com/kunchenguid/no-mistakes/issues/1179)) ([15a6204](https://github.com/kunchenguid/no-mistakes/commit/15a62047b61d6dee0532823a79b987f29671ce5f))
+
+
+### Bug Fixes
+
+* **gate:** detect fork-as-origin layout and refuse with --fork-url guidance ([#1183](https://github.com/kunchenguid/no-mistakes/issues/1183)) ([a7ab68b](https://github.com/kunchenguid/no-mistakes/commit/a7ab68b144de59baf11595b8a463370072aaf62a))
+* **pipeline:** resolve branch base against freshly fetched base-branch tip ([#1147](https://github.com/kunchenguid/no-mistakes/issues/1147)) ([de50789](https://github.com/kunchenguid/no-mistakes/commit/de5078977e24f8752d88b8527221d8e15a1b9bcf))
+* **scm:** read jobless action_required workflow runs as awaiting maintainer approval ([#1185](https://github.com/kunchenguid/no-mistakes/issues/1185)) ([95c1ec7](https://github.com/kunchenguid/no-mistakes/commit/95c1ec78a8df491283196ae7dd6c648e7a3b521f)), closes [#1182](https://github.com/kunchenguid/no-mistakes/issues/1182)
+
+## [1.82.0](https://github.com/kunchenguid/no-mistakes/compare/v1.81.0...v1.82.0) (2026-09-23)
+
+
+### Features
+
+* **agent:** support Devin CLI as an ACP alias ([#1168](https://github.com/kunchenguid/no-mistakes/issues/1168)) ([6b4a55b](https://github.com/kunchenguid/no-mistakes/commit/6b4a55b9dc9552589243f8129202b9ec220047f0))
+
+
+### Bug Fixes
+
+* **daemon:** atomically write NM_HOME capture for detached-start test ([#1172](https://github.com/kunchenguid/no-mistakes/issues/1172)) ([7051487](https://github.com/kunchenguid/no-mistakes/commit/705148782644f1a74ff6f703e40a9a21e1465efa))
+* **pipeline:** retire the Jev review pre-brief and its excerpt option ([#1165](https://github.com/kunchenguid/no-mistakes/issues/1165)) ([d66e3b3](https://github.com/kunchenguid/no-mistakes/commit/d66e3b3721b1476f13eea951c866578bd6642bc3))
+
+## [1.81.0](https://github.com/kunchenguid/no-mistakes/compare/v1.80.1...v1.81.0) (2026-09-22)
+
+
+### Features
+
+* **branchsync:** recover published rebased gate lanes ([#1053](https://github.com/kunchenguid/no-mistakes/issues/1053)) ([718ab85](https://github.com/kunchenguid/no-mistakes/commit/718ab852f253fc3b5539d6629e6b063510ac57f7))
+* **pipeline:** add opt-in bounded candidate excerpts to Jev review pre-brief ([#1160](https://github.com/kunchenguid/no-mistakes/issues/1160)) ([11a95ad](https://github.com/kunchenguid/no-mistakes/commit/11a95ad88479fb30a8b79180c971756ff9be6779))
+* **review:** opt-in per-round review agent overrides ([#897](https://github.com/kunchenguid/no-mistakes/issues/897)) ([#1141](https://github.com/kunchenguid/no-mistakes/issues/1141)) ([74455c4](https://github.com/kunchenguid/no-mistakes/commit/74455c44ca814c15c2c68b045763060f4b460a27))
+
+
+### Bug Fixes
+
+* **agent:** trigger prompt-only fallback for unconditional tool_choice rejections ([#1017](https://github.com/kunchenguid/no-mistakes/issues/1017)) ([cd24041](https://github.com/kunchenguid/no-mistakes/commit/cd24041ae58e68a14ae1d7c83e85281cbe0b86bf))
+* **ci:** pin require-no-mistakes at v1.80.1 and restore synchronize ([#1145](https://github.com/kunchenguid/no-mistakes/issues/1145)) ([90d1d0f](https://github.com/kunchenguid/no-mistakes/commit/90d1d0ffa05dc3237d70e1bd1e46e139ce24b5f3))
+
 ## [1.80.1](https://github.com/kunchenguid/no-mistakes/compare/v1.80.0...v1.80.1) (2026-09-20)
 
 

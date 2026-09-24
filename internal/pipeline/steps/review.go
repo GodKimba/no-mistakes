@@ -19,10 +19,6 @@ import (
 // ReviewStep reviews the diff for bugs, security issues, and doc gaps.
 type ReviewStep struct {
 	now func() time.Time
-	// jev, when non-nil, is the TypeSafe pre-brief client (tests inject a
-	// fake). Nil resolves from TYPESAFE_API_KEY in the daemon environment at
-	// turn time; the assist is inert unless jev.review_assist is enabled.
-	jev jevClient
 }
 
 func (s *ReviewStep) Name() types.StepName { return types.StepReview }
@@ -37,7 +33,10 @@ func (s *ReviewStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome,
 		return nil, err
 	}
 	ctx := sctx.Ctx
-	baseSHA := resolveBranchBaseSHA(ctx, sctx.WorkDir, sctx.Run.BaseSHA, sctx.Repo.DefaultBranch)
+	baseSHA, err := resolveBranchBaseSHA(ctx, sctx, sctx.Run.BaseSHA, sctx.Repo.DefaultBranch)
+	if err != nil {
+		return nil, err
+	}
 	branch := sctx.Run.Branch
 	ignorePatterns := "none"
 	if len(sctx.Config.IgnorePatterns) > 0 {
@@ -248,12 +247,6 @@ Previous review findings to address:
 	logPathInstructions(sctx.Log, pathInstructionMatches)
 	pathInstructions := reviewPathInstructionsSection(pathInstructionMatches)
 
-	// The opt-in Jev pre-brief contributes advisory context ranking to the
-	// prompt below. It can only add to the prompt - never remove a file,
-	// clause, or obligation - and any failure leaves the prompt byte-identical
-	// to running with the assist off.
-	prebrief := s.reviewPrebriefSection(ctx, sctx, baseSHA, changed, reviewable)
-
 	// The authorization/privacy obligation below specializes the existing
 	// concrete-state trace only when changed behavior crosses a potentially
 	// protected resource or user-data boundary. The repository still owns access
@@ -362,7 +355,7 @@ Risk assessment (after listing all findings):
 - Set risk_level to "medium" if the change has room to improve but is safe to merge first with concerns addressed as follow-ups.
 - Set risk_level to "high" if the change should not be merged without explicit human approval - it is fundamental, risky, ambiguous, or has strong negative signals.
 - Provide a one-sentence risk_rationale explaining why you chose that risk level.
-- Set risk_scope to "source-or-external" when the assessment reflects source risk or enforceable external state, and to "pipeline-owned-delivery" only when it is based solely on a deferred outcome this run owns.%s%s%s`,
+- Set risk_scope to "source-or-external" when the assessment reflects source risk or enforceable external state, and to "pipeline-owned-delivery" only when it is based solely on a deferred outcome this run owns.%s%s`,
 		branch,
 		baseSHA,
 		sctx.Run.HeadSHA,
@@ -371,7 +364,6 @@ Risk assessment (after listing all findings):
 		ignorePatterns,
 		historySection,
 		pathInstructions,
-		prebrief,
 	)
 
 	// Every review turn - the initial review and every post-fix rereview -
