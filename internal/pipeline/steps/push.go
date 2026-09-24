@@ -150,7 +150,7 @@ func publishRunHead(sctx *pipeline.StepContext, headBeingPushed, localRefUpdate 
 		return err
 	}
 	// Prove the private mirror is safe to reconcile BEFORE anything is
-	// published: outside the exact submitted-head exception, unproven private
+	// published: outside the exact run-owned-head exception, unproven private
 	// content must refuse while the branch is intact. Applying the plan is deferred
 	// until the upstream push is verified, because a refused or failed push is
 	// a designed outcome and a gate left with no branch ref would strand
@@ -246,9 +246,11 @@ func publishRunHead(sctx *pipeline.StepContext, headBeingPushed, localRefUpdate 
 }
 
 // planGateMirrorReconciliation inspects the gate mirror without mutating it.
-// Only the exact submitted head is eligible for the policy exception owned by
-// docs/src/content/docs/concepts/gate-model.md. Do not substitute an agent-created
-// or later recorded head: those still require preservation checks.
+// Only the heads this run itself placed on the mirror - its exact submitted
+// head and its exact durable last-published head - are eligible for the policy
+// exception owned by docs/src/content/docs/concepts/gate-model.md. Do not
+// substitute an agent-created or other recorded head: those still require
+// preservation checks.
 func planGateMirrorReconciliation(ctx context.Context, sctx *pipeline.StepContext, ref, branch, headBeingPushed string) (gatepkg.StaleBranchPlan, error) {
 	var plan gatepkg.StaleBranchPlan
 	if sctx.Repo == nil || strings.TrimSpace(sctx.GateDir) == "" {
@@ -261,7 +263,11 @@ func planGateMirrorReconciliation(ctx context.Context, sctx *pipeline.StepContex
 		}
 		return plan, fmt.Errorf("update gate mirror ref %s before push: stat repository: %w", ref, err)
 	}
-	plan, err := gatepkg.PlanMirrorPublicationReconciliation(ctx, gateDir, sctx.WorkDir, branch, headBeingPushed, runOwnedSubmittedHead(sctx))
+	publishedHead, err := runOwnedPublishedHead(sctx)
+	if err != nil {
+		return plan, fmt.Errorf("update gate mirror ref %s before push: %w", ref, err)
+	}
+	plan, err = gatepkg.PlanMirrorPublicationReconciliation(ctx, gateDir, sctx.WorkDir, branch, headBeingPushed, runOwnedSubmittedHead(sctx), publishedHead)
 	if err != nil {
 		return gatepkg.StaleBranchPlan{}, fmt.Errorf("update gate mirror ref %s before push: %w", ref, err)
 	}
@@ -273,6 +279,27 @@ func runOwnedSubmittedHead(sctx *pipeline.StepContext) string {
 		return ""
 	}
 	return strings.TrimSpace(*sctx.Run.SubmittedHeadSHA)
+}
+
+// runOwnedPublishedHead returns the head this run last published, read from
+// the durable run record. Once a run has published, the mirror carries that
+// head rather than the submitted one, so a reviewed rewrite of an already
+// published run - a CI merge-conflict repair revalidated from Review - needs
+// the same exception to replace it. UpdateRunPublication writes the value only
+// after a verified push and mirror settlement, so it is never an external or
+// newer head, and the upstream push is leased on the same SHA
+// (lastKnownBranchTip). The in-memory run is not the source: publication
+// advances only its HeadSHA, so within one executor pass its LastPushedSHA
+// still predates the first push.
+func runOwnedPublishedHead(sctx *pipeline.StepContext) (string, error) {
+	run, err := sctx.DB.GetRun(sctx.Run.ID)
+	if err != nil {
+		return "", fmt.Errorf("load durable publication: %w", err)
+	}
+	if run == nil || run.LastPushedSHA == nil {
+		return "", nil
+	}
+	return strings.TrimSpace(*run.LastPushedSHA), nil
 }
 
 func updateGateMirrorAfterPush(ctx context.Context, sctx *pipeline.StepContext, ref, headBeingPushed string, mirrorPlan gatepkg.StaleBranchPlan) (err error) {
