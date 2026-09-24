@@ -108,13 +108,13 @@ as at risk.
 private mirror head that is **exactly equal to a head the publishing run itself
 placed on the mirror** without patch-ID or tree-survival proof: its
 `Run.SubmittedHeadSHA`, or, once it has published, its durable
-`Run.LastPushedSHA`. The last pushed head is recorded only after a verified
-upstream push and mirror settlement, so it is never an external or newer head.
+`Run.LastPushedSHA`. The last pushed head is recorded only after a verified push to the configured
+push target and mirror settlement, so it is never an external or newer head.
 This narrow policy exception permits reviewed rebases and conflict resolutions
 to change the submitted patch, including a CI merge-conflict repair that is
 revalidated from Review after the run has already published. The replacement
-head must still be review-approved, and the upstream force push stays leased
-on the same last pushed head. Ownership is not containment evidence. The
+head must still be review-approved, and the force push to the configured target
+stays leased on the same last pushed head. Ownership is not containment evidence. The
 exception does not extend to another recorded head, an agent-created head, an
 abbreviated SHA, or an external, newer, or divergent private head. Fresh AXI
 submissions do not receive this exception.
